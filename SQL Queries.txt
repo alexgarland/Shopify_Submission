@@ -1,0 +1,29 @@
+Q2: 
+
+(a) How many orders were shipped by Speedy Express in total?
+
+Query: Select Count(Distinct OrderID) from Orders as O
+Inner JOIN Shippers as S on O.ShipperID = S.ShipperID
+Where S.ShipperName == "Speedy Express";
+Answer: 54
+
+(b) What is the last name of the employee with the most orders?
+Query: SELECT Count(Distinct OrderID) as NumSales, O.EmployeeID, E.LastName from Orders as O
+INNER JOIN Employees as E on O.EmployeeID = E.EmployeeID
+Group By O.EmployeeID
+Order By NumSales Desc Limit 1;
+
+Answer: Peacock
+
+(c) What product was ordered the most by customers in Germany?
+
+There is some uncertainty in this question. I am choosing to interpret which item had the highest overall quantity of items bought by customers in Germany (the alternative interpretation would be which item most often showed up in German orders). 
+Query:  SELECT Sum(Quantity) as TotalSold, OD.ProductID, P.ProductName from OrderDetails as OD
+Inner Join Orders as O on O.OrderID = OD.OrderID
+Inner Join Customers as C on C.CustomerID = O.CustomerID
+Inner Join Products as P on P.ProductID = OD.ProductID
+Where C.Country == "Germany"
+Group By OD.ProductID
+ORDER BY TotalSold Desc Limit 1;
+
+Answer: Boston Crab Meat, with 160 Sold
