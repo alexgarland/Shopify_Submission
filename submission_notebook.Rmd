@@ -1,0 +1,101 @@
+---
+title: "Shopify Submission: Summer 2022 Data Science Internship"
+output: html_notebook
+---
+
+This notebook consists of all the relevant portions of the mandatory [Data Science Intern Challenge](https://docs.google.com/document/d/13VCtoyto9X1PZ74nPI4ZEDdb8hF8LAlcmLH1ZTHxKxE/edit#) Question 1. 
+
+We begin first by reading the data in, using the `fread` function from the `data.table` package- it is done in this particular way because of the benefits of using `data.tables` later on, although it can be done using native R functions or using the `tidyverse`.
+
+```{r}
+library(data.table)
+dt.sneakers <- fread("data.csv")
+```
+
+We first see that the average order value (AOV) over the window given does in fact equal $3145.13:
+```{r}
+mean(dt.sneakers$order_amount)
+```
+
+which, as the challenge asserts is a puzzingly high amount given the typical price of sneakers. So what gives? We may first notice that order IDs 16 and 61 offer a tantalizing clue to what could be going on:
+
+```{r}
+dt.sneakers[order_id %in% c(16, 61)]
+```
+Notice here that there are two otherwise identical orders inputted at the *same time* that differ in order id only by flipped digits. So potential error #1: the possibility of faulty data via repetition of orders, something with an especially large impact given how large that individual order seems to be. In fact, if we list the orders by their size, we notice that **17** of the largest 20 orders all seem to be repetitions of this one order, although notably they seem to be coming in at different times.
+
+```{r}
+head(dt.sneakers[order(-order_amount)], 20)
+```
+
+So the first thing that probably ought be done is any metric ought be calculated on orders that we are reasonably sure are unique, hence we ought to calculate our metric on unique combinations of shop_id-user_id-order_amount-total_items-payment_method-created_at.
+
+```{r}
+dt.sneakersUnique <- unique(dt.sneakers[, .(shop_id, user_id, order_amount, total_items, payment_method, created_at)])
+NROW(dt.sneakersUnique)
+mean(dt.sneakersUnique$order_amount)
+```
+In doing so, we now see that the average order amount has dropped by around $700 after dropping 5 duplicate orders, which seems to go a long way towards evaluating the potential issues in the calculation. But what else could be driving this? Turning once again to the largest orders (after ensuring uniqueness), we see that the same user seems to be driving the AOV all the same:
+
+```{r}
+head(dt.sneakersUnique[order(-order_amount)], 20)
+```
+
+If we instead choose to filter on shop_id-user_id-order_amount-total_items-payment_method (therefore excluding the creation date) as part of the uniqueness, we get:
+
+```{r}
+dt.sneakersUnique2 <- unique(dt.sneakers[, .(shop_id, user_id, order_amount, total_items, payment_method)])
+NROW(dt.sneakersUnique2)
+mean(dt.sneakersUnique2$order_amount)
+```
+
+Which is to say that we have dropped 67 potentially fake transactions to get an AOV of $901.60, and we have potentially explained away a seeming majority of the discrepancy. We did so at the potential loss of real transactions, it must be noted (although repeat transactions would seem somewhat odd in reality, there's no reason why it *couldn't* happen). Performing our ordering exercise again, we see:
+```{r}
+head(dt.sneakersUnique2[order(-order_amount)], 20)
+```
+
+Now the ordering is dominated not by seemingly repeated orders that are potentially fraudulent but by orders from Shop #78 with identically high order amounts across different user ids and payment methods. This seems to suggest that shop 78 has a serious data collection issue. We could choose to exclude this shop as well:
+
+```{r}
+dt.sneakersUnique3 <- dt.sneakersUnique2[shop_id != 78]
+NROW(dt.sneakersUnique3)
+mean(dt.sneakersUnique3$order_amount)
+```
+
+Which drops 46 transactions and brings us into the realm of somewhat believable (albeit very high) average order value (for instance these shops could cater to enthusiasts and this could be during the release of a highly hyped sneaker). Further dropping the problematic user (user_id 607) identified earlier altogether, and we see that the AOC drops to $302.86, which is definitely within the realm of believability.
+
+```{r}
+dt.sneakersUnique3 <- dt.sneakersUnique3[user_id != 607]
+mean(dt.sneakersUnique3$order_amount)
+```
+Repeating our exercise as before, we order by the largest order amounts:
+```{r}
+head(dt.sneakersUnique3[order(-order_amount)], 20)
+```
+
+Nothing here immediately screams impossibility, as these are all orders that a sneaker enthusiast could very well make. For good measure, we do so for the smallest order amounts as well:
+```{r}
+head(dt.sneakersUnique3[order(order_amount)], 20)
+```
+Nothing immediately stands out. One of the shops in particular does seem to sell a lot of $90 sneakers, but there are perfectly legitimate reasons that could explain it dominating the lower end of sneaker orders (e.g. perhaps it's in a lower income neighborhood and thus it skews it's stock towards lower priced shoes).
+
+So the data here is plagued by potentially false transactions, coming both from a particular user and from a particular shop. However, it would be better to have a metric which is much more robust to repeated transactions as well as a small number of transactions that are in some way fake, regardless of whether those are being driven by a user or a shop. 
+
+This is however a question which has been broadly considered in statistics. The typical answer given is to use methods related to the median and/or an $L_1$ loss function. The connection between the $L_1$ loss function, the median, and robustness to outliers lies outside the scope of this job submission, but needless to say, the underlying mathematics serves as something of a defense against these "bad" orders. Pretty coincedentally, we notice a very nice property: 
+
+```{r}
+median(dt.sneakers$order_amount)
+median(dt.sneakersUnique$order_amount)
+median(dt.sneakersUnique2$order_amount)
+median(dt.sneakersUnique3$order_amount)
+```
+
+Thus, our median value metric would have returned the "correct" value even without manual cleaning. There are also arguments for alternative metrics: consider, for instance, investigation may find that there exist a core of consistent and high value customers and a much broader base of consumers who buy products on somewhat occassionally. If that were the case, it could be meaningful to target, say, the 10th percentile order size as a stand in for increasing the core of the customer base via inroads among the base of occasional customers. 
+
+```{r}
+mean(dt.sneakers[, .N, keyby = user_id]$N)
+median(dt.sneakers[, .N, keyby = user_id]$N)
+plot(density(dt.sneakers[, .N, keyby = user_id]$N))
+```
+
+However, given all statistics seem to suggest that nearly everyone buying from the sneaker stores on Shopify does so *repeatedly in a 1 month span*, this does not seem the be the case. However, given weighing business that typically focus on overall profit, a consumer base which seems fairly active with no real special segmentation that I can see, and a need to balance robustness, I think the median order value is not only defensible but advisable, with a value of 284.
